@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
+import { Effect, Layer } from "effect";
 import { AsyncResult, AtomRegistry } from "effect/reactivity";
-import { makeTodoApiLayer } from "../services/TodoApi";
+import { makeTodoApiLayer, TodoApi, TodoApiError } from "../services/TodoApi";
 import { applyFilter, makeTodoAtoms } from "./todoAtoms";
 
 const todos = [
@@ -11,6 +12,7 @@ const todos = [
 const setup = () => {
   const atoms = makeTodoAtoms(makeTodoApiLayer({ latencyMs: 0 }));
   const registry = AtomRegistry.make();
+  onTestFinished(() => registry.dispose());
   return { atoms, registry };
 };
 
@@ -23,6 +25,29 @@ describe("applyFilter", () => {
 });
 
 describe("todo atoms", () => {
+  it("executes a failed service request once per atom write", async () => {
+    const createTodo = vi.fn(() =>
+      Effect.fail(new TodoApiError({ message: "Service unavailable" })),
+    );
+    const atoms = makeTodoAtoms(
+      Layer.succeed(TodoApi, { getTodos: Effect.succeed([]), createTodo }),
+    );
+    const registry = AtomRegistry.make();
+    onTestFinished(() => registry.dispose());
+    registry.mount(atoms.loadTodosAtom);
+    registry.mount(atoms.addTodoAtom);
+    await vi.waitFor(() =>
+      expect(AsyncResult.isSuccess(registry.get(atoms.loadTodosAtom))).toBe(true),
+    );
+
+    registry.set(atoms.addTodoAtom, "Write tests");
+    await vi.waitFor(() =>
+      expect(AsyncResult.isFailure(registry.get(atoms.addTodoAtom))).toBe(true),
+    );
+
+    expect(createTodo).toHaveBeenCalledExactlyOnceWith("Write tests");
+  });
+
   it("derives filtered todos and remaining count from core atoms", () => {
     const { atoms, registry } = setup();
     registry.set(atoms.todosAtom, todos);
@@ -36,7 +61,9 @@ describe("todo atoms", () => {
   it("loads initial todos through the service layer", async () => {
     const { atoms, registry } = setup();
     registry.mount(atoms.loadTodosAtom);
-    await waitFor(() => AsyncResult.isSuccess(registry.get(atoms.loadTodosAtom)));
+    await vi.waitFor(() =>
+      expect(AsyncResult.isSuccess(registry.get(atoms.loadTodosAtom))).toBe(true),
+    );
 
     expect(registry.get(atoms.todosAtom).map((t) => t.title)).toEqual([
       "Build Effect SPA",
@@ -48,7 +75,7 @@ describe("todo atoms", () => {
     const { atoms, registry } = setup();
     registry.mount(atoms.addTodoAtom);
     registry.set(atoms.addTodoAtom, "  write tests ");
-    await waitFor(() => !registry.get(atoms.addTodoAtom).waiting);
+    await vi.waitFor(() => expect(registry.get(atoms.addTodoAtom).waiting).toBe(false));
 
     const result = registry.get(atoms.addTodoAtom);
     expect(AsyncResult.isSuccess(result)).toBe(true);
@@ -60,18 +87,10 @@ describe("todo atoms", () => {
     const { atoms, registry } = setup();
     registry.mount(atoms.addTodoAtom);
     registry.set(atoms.addTodoAtom, "   ");
-    await waitFor(() => !registry.get(atoms.addTodoAtom).waiting);
+    await vi.waitFor(() => expect(registry.get(atoms.addTodoAtom).waiting).toBe(false));
 
     const result = registry.get(atoms.addTodoAtom);
     expect(AsyncResult.isFailure(result)).toBe(true);
     expect(registry.get(atoms.todosAtom)).toHaveLength(0);
   });
 });
-
-async function waitFor(predicate: () => boolean, timeoutMs = 1000) {
-  const start = Date.now();
-  while (!predicate()) {
-    if (Date.now() - start > timeoutMs) throw new Error("timeout");
-    await new Promise((r) => setTimeout(r, 5));
-  }
-}

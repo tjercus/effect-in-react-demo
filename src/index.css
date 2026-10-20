@@ -3,3 +3,28 @@ body {
   background: #008080;
   min-height: 100vh;
 }
+
+.todo-app {
+  box-sizing: border-box;
+  inline-size: 26.25rem;
+  max-inline-size: calc(100% - 2rem);
+  margin: 2rem auto;
+}
+
+.todo-app__input,
+.todo-app__title {
+  flex: 1;
+  min-inline-size: 0;
+}
+
+.todo-app__filters {
+  margin-block: 0.5rem;
+}
+
+.todo-app__title {
+  overflow-wrap: anywhere;
+}
+
+.todo-app__title--completed {
+  text-decoration: line-through;
+}

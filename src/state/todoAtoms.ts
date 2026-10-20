@@ -1,20 +1,17 @@
-import { Effect } from "effect";
+import { Effect, Match } from "effect";
 import { Atom } from "effect/reactivity";
 import type { Layer } from "effect";
 import { TodoApi, type Todo } from "../services/TodoApi";
 
 export type Filter = "all" | "active" | "completed";
 
-export const applyFilter = (todos: ReadonlyArray<Todo>, filter: Filter): ReadonlyArray<Todo> => {
-  switch (filter) {
-    case "active":
-      return todos.filter((t) => !t.completed);
-    case "completed":
-      return todos.filter((t) => t.completed);
-    default:
-      return todos;
-  }
-};
+export const applyFilter = (todos: ReadonlyArray<Todo>, filter: Filter): ReadonlyArray<Todo> =>
+  Match.value(filter).pipe(
+    Match.when("active", () => todos.filter((t) => !t.completed)),
+    Match.when("completed", () => todos.filter((t) => t.completed)),
+    Match.when("all", () => todos),
+    Match.exhaustive,
+  );
 
 /**
  * Builds the atom graph on top of a service layer. A factory (instead of

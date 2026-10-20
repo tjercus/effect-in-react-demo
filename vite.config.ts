@@ -3,10 +3,14 @@ import { defineConfig, lazyPlugins } from "vite-plus";
 
 // https://vite.dev/config/
 export default defineConfig({
+  resolve: {
+    dedupe: ["react", "react-dom", "effect"],
+  },
   fmt: {},
   lint: {
     plugins: ["react", "typescript", "oxc"],
     rules: {
+      curly: "error",
       "react/rules-of-hooks": "error",
       "react/only-export-components": [
         "warn",
@@ -32,9 +36,15 @@ export default defineConfig({
     cssMinify: false,
   },
   test: {
+    include: ["src/**/*.test.{ts,tsx}"],
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     globals: false,
+    server: {
+      deps: {
+        inline: ["@effect/atom-react"],
+      },
+    },
   },
   plugins: lazyPlugins(() => [react()]),
 });

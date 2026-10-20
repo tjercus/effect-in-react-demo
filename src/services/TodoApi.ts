@@ -9,6 +9,7 @@ export interface Todo {
 
 export class TodoApiError extends Data.TaggedError("TodoApiError")<{
   readonly message: string;
+  readonly cause?: unknown;
 }> {}
 
 export class TodoApi extends Context.Service<
@@ -39,12 +40,22 @@ export const makeTodoApiLayer = (options: { readonly latencyMs: number }) =>
       return TodoApi.of({
         getTodos: delay.pipe(Effect.as(seed)),
         createTodo: Effect.fn("TodoApi.createTodo")(function* (title) {
-          const trimmed = title.trim();
-          if (trimmed.length === 0) {
-            return yield* new TodoApiError({ message: "Title must not be empty" });
-          }
+          const trimmed = yield* Effect.succeed(title.trim()).pipe(
+            Effect.filterOrFail(
+              (value) => value.length > 0,
+              () => new TodoApiError({ message: "Title must not be empty" }),
+            ),
+          );
           yield* delay;
-          const id = yield* Effect.orDie(crypto.randomUUIDv7());
+          const id = yield* crypto.randomUUIDv7().pipe(
+            Effect.mapError(
+              (cause) => new TodoApiError({ message: "Could not generate a todo ID", cause }),
+            ),
+            // Crypto.make invokes the platform random source synchronously.
+            Effect.catchDefect((cause) =>
+              Effect.fail(new TodoApiError({ message: "Could not generate a todo ID", cause })),
+            ),
+          );
           return { id, title: trimmed, completed: false };
         }),
       });

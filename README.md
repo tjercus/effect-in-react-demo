@@ -17,13 +17,13 @@ pnpm exec vp build        # production build
 
 ## The mental model
 
-| Concern | Effect v4 tool | File |
-| --- | --- | --- |
-| Dependencies / side-effect boundaries | `Context.Service` + `Layer` | `src/services/` |
-| Local reactive state | `Atom.make(value)` | `src/state/todoAtoms.ts` |
-| Derived state | `Atom.make((get) => ...)` | `src/state/todoAtoms.ts` |
-| Async work with services | `Atom.runtime(layer)` → `runtime.atom(effect)` / `runtime.fn()(...)` | `src/state/todoAtoms.ts` |
-| React bindings | `RegistryProvider`, `useAtom`, `useAtomValue`, `useAtomSet`, `useAtomMount` | `src/components/TodoApp.tsx`, `src/main.tsx` |
+| Concern                               | Effect v4 tool                                                              | File                                         |
+| ------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------------- |
+| Dependencies / side-effect boundaries | `Context.Service` + `Layer`                                                 | `src/services/`                              |
+| Local reactive state                  | `Atom.make(value)`                                                          | `src/state/todoAtoms.ts`                     |
+| Derived state                         | `Atom.make((get) => ...)`                                                   | `src/state/todoAtoms.ts`                     |
+| Async work with services              | `Atom.runtime(layer)` → `runtime.atom(effect)` / `runtime.fn()(...)`        | `src/state/todoAtoms.ts`                     |
+| React bindings                        | `RegistryProvider`, `useAtom`, `useAtomValue`, `useAtomSet`, `useAtomMount` | `src/components/TodoApp.tsx`, `src/main.tsx` |
 
 Data flow: **components → atoms → services (Layers)**. Components never call services directly.
 
@@ -35,8 +35,8 @@ v4 replaced `Context.Tag` with `Context.Service`. A service is a class declaring
 export class TodoApi extends Context.Service<
   TodoApi,
   {
-    readonly getTodos: Effect.Effect<ReadonlyArray<Todo>, TodoApiError>
-    readonly createTodo: (title: string) => Effect.Effect<Todo, TodoApiError>
+    readonly getTodos: Effect.Effect<ReadonlyArray<Todo>, TodoApiError>;
+    readonly createTodo: (title: string) => Effect.Effect<Todo, TodoApiError>;
   }
 >()("app/TodoApi") {}
 
@@ -44,39 +44,46 @@ export const makeTodoApiLayer = (options: { latencyMs: number }) =>
   Layer.effect(
     TodoApi,
     Effect.gen(function* () {
-      const crypto = yield* Crypto.Crypto // Effect-backed UUIDs, swappable in tests
-      return TodoApi.of({ /* ... */ })
+      const crypto = yield* Crypto.Crypto; // Effect-backed UUIDs, swappable in tests
+      return TodoApi.of({/* ... */});
     }),
-  ).pipe(Layer.provide(BrowserCryptoLive))
+  ).pipe(Layer.provide(BrowserCryptoLive));
 ```
 
 - Errors are typed (`Data.TaggedError`) and flow into atoms as `AsyncResult.Failure`.
+- UUID generation failures become `TodoApiError` values with their original cause, rather than defects. The browser digest adapter similarly reports Web Crypto failures as typed `PlatformError` values.
 - IDs come from Effect's `Crypto.randomUUIDv7()` rather than `crypto.randomUUID()`. `src/services/BrowserCrypto.ts` implements the `Crypto` service on top of Web Crypto.
 - Swap the layer (HTTP, IndexedDB, in-memory fake) without touching atoms or components.
 
 ## 2. Atoms (`src/state/todoAtoms.ts`)
 
 ```ts
-const runtime = Atom.runtime(layer)                     // Layer -> atom that can run effects
+const runtime = Atom.runtime(layer); // Layer -> atom that can run effects
 
-const todosAtom = Atom.make<ReadonlyArray<Todo>>([])    // writable state
-const filterAtom = Atom.make<Filter>("all")
-const filteredTodosAtom = Atom.make((get) =>            // derived; tracks deps via `get`
-  applyFilter(get(todosAtom), get(filterAtom)))
+const todosAtom = Atom.make<ReadonlyArray<Todo>>([]); // writable state
+const filterAtom = Atom.make<Filter>("all");
+const filteredTodosAtom = Atom.make((get) =>
+  // derived; tracks deps via `get`
+  applyFilter(get(todosAtom), get(filterAtom)),
+);
 
-const loadTodosAtom = runtime.atom(                     // effect atom -> AsyncResult
+const loadTodosAtom = runtime.atom(
+  // effect atom -> AsyncResult
   Effect.gen(function* () {
-    const api = yield* TodoApi
-    const todos = yield* api.getTodos
-    yield* Atom.set(todosAtom, todos)
-  }))
+    const api = yield* TodoApi;
+    const todos = yield* api.getTodos;
+    yield* Atom.set(todosAtom, todos);
+  }),
+);
 
-const addTodoAtom = runtime.fn<string>()(               // write an argument to run it
+const addTodoAtom = runtime.fn<string>()(
+  // write an argument to run it
   Effect.fnUntraced(function* (title) {
-    const api = yield* TodoApi
-    const todo = yield* api.createTodo(title)
-    yield* Atom.update(todosAtom, (prev) => [...prev, todo])
-  }))
+    const api = yield* TodoApi;
+    const todo = yield* api.createTodo(title);
+    yield* Atom.update(todosAtom, (prev) => [...prev, todo]);
+  }),
+);
 ```
 
 `makeTodoAtoms(layer)` is a factory so tests can build the same atom graph over a fake layer. `src/state/index.ts` wires the live one.
@@ -88,26 +95,34 @@ const addTodoAtom = runtime.fn<string>()(               // write an argument to 
 - `useAtomValue(atom)` subscribes to a value; `useAtomSet(atom)` returns a setter (accepts an updater function); `useAtom(atom)` returns both.
 - For effect atoms the value is an `AsyncResult` (`Initial | Success | Failure`, each with a `waiting` flag). Use `AsyncResult.isInitial/isFailure/isSuccess` or `AsyncResult.match`.
 - `useAtom(addTodoAtom)` gives `[result, add]`; `result.waiting` is the pending flag, so no `useTransition` is needed for Effect-driven pending UI.
+- The form uses `useAtom(addTodoAtom, { mode: "promiseExit" })` to clear the draft only after a successful submission. A failed submission keeps the text available for retry.
+- Adding is disabled until the initial load succeeds and while a submission is pending, preventing the initial fetch from overwriting a newly added todo. Failed initial loads have a **Retry** button.
+
+This is an in-memory demo: additions, toggles, and deletions last only for the current app session. Reloading the page restores the seed todos; the simulated service does not persist mutations.
 
 ## Differences from older Effect / atom examples
 
 Examples floating around (including LLM output) often use APIs that don't exist in `effect@4.0.5`:
 
-| Old / hallucinated | Use instead |
-| --- | --- |
-| `Context.Tag("X")<X, Shape>()` | `Context.Service<X, Shape>()("X")` |
-| `Atom.makeEffect(effect)` | `runtime.atom(effect)` (or `Atom.make(effect)` when no services needed) |
-| `Atom.all([a, b])` + `Atom.map` | `Atom.make((get) => f(get(a), get(b)))` |
-| `<AtomProvider layer={...}>` | `<RegistryProvider>` + `Atom.runtime(layer)` |
-| `useRunEffect()` | `runtime.fn()(...)` atom + `useAtom` / `useAtomSet` |
-| `crypto.randomUUID()` | `Crypto.randomUUIDv7()` via the `Crypto` service |
+| Old / hallucinated              | Use instead                                                             |
+| ------------------------------- | ----------------------------------------------------------------------- |
+| `Context.Tag("X")<X, Shape>()`  | `Context.Service<X, Shape>()("X")`                                      |
+| `Atom.makeEffect(effect)`       | `runtime.atom(effect)` (or `Atom.make(effect)` when no services needed) |
+| `Atom.all([a, b])` + `Atom.map` | `Atom.make((get) => f(get(a), get(b)))`                                 |
+| `<AtomProvider layer={...}>`    | `<RegistryProvider>` + `Atom.runtime(layer)`                            |
+| `useRunEffect()`                | `runtime.fn()(...)` atom + `useAtom` / `useAtomSet`                     |
+| `crypto.randomUUID()`           | `Crypto.randomUUIDv7()` via the `Crypto` service                        |
 
 Atom APIs live under `effect/reactivity` and are marked `@stability unstable` in v4, so expect changes.
 
 ## Testing
 
 - **Atoms**: create an `AtomRegistry.make()`, `registry.set/get/mount`, and a zero-latency layer. See `src/state/todoAtoms.test.ts`.
-- **Components**: render inside `RegistryProvider` with Testing Library. See `src/components/TodoApp.test.tsx`.
+- **Components**: render inside `RegistryProvider` with Testing Library and a controlled service layer. Tests cover loading, filtering, edits, pending/blank submission guards, and error recovery. See `src/components/TodoApp.test.tsx`.
+- **Services**: test title validation, UUIDv7 generation, and typed Web Crypto failures. See `src/services/TodoApi.test.ts` and `src/services/BrowserCrypto.test.ts`.
+- Test discovery is restricted to `src/**/*.test.{ts,tsx}` so the cloned reference repositories in `docs/repos/` are not executed.
+- Vite deduplicates React, React DOM, and Effect. Tests inline `@effect/atom-react` so it shares those instances instead of nested copies, avoiding invalid hook calls and duplicate mutation execution caused by separate atom batching state.
+- Both TypeScript configurations enable strict checking. `pnpm run build` runs the TypeScript compiler before the production build.
 
 ## Build note
 

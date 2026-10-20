@@ -1,4 +1,4 @@
-import { Crypto, Effect, Layer } from "effect";
+import { Crypto, Effect, Layer, PlatformError } from "effect";
 
 /**
  * Browser implementation of Effect's `Crypto` service, backed by Web Crypto.
@@ -10,9 +10,16 @@ export const BrowserCryptoLive = Layer.succeed(
   Crypto.make({
     randomBytes: (size) => globalThis.crypto.getRandomValues(new Uint8Array(size)),
     digest: (algorithm, data) =>
-      Effect.promise(async () => {
-        const buffer = await globalThis.crypto.subtle.digest(algorithm, data as BufferSource);
-        return new Uint8Array(buffer);
-      }),
+      Effect.tryPromise({
+        try: () => globalThis.crypto.subtle.digest(algorithm, new Uint8Array(data)),
+        catch: (cause) =>
+          PlatformError.systemError({
+            module: "Crypto",
+            method: "digest",
+            _tag: "Unknown",
+            description: "Could not compute digest",
+            cause,
+          }),
+      }).pipe(Effect.map((buffer) => new Uint8Array(buffer))),
   }),
 );
