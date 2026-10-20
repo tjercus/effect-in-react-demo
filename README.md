@@ -3,6 +3,8 @@
 A small TODO single-page app showing how to use **Effect v4** (`effect@4`, `@effect/atom-react`) inside a **React 19** SPA.
 Built with [Vite+](https://viteplus.dev/), TypeScript 7, and styled with [XP.css](https://botoxparty.github.io/XP.css/).
 
+![effect-in-react-demo screenshot](./public/effect-in-react-demo.png)
+
 ## Run it
 
 ```bash
