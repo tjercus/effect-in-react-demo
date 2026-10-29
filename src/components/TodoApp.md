@@ -1,0 +1,3 @@
+Line 37 uses useState because text is just the current form’s draft: temporary UI state that doesn’t need to be shared or derived elsewhere. The todos and filter use atoms because they’re part of the app’s shared state; addTodoAtom also handles the Effect-backed operation.
+
+Keeping the draft in useState means it clears after a successful submission, while a failed submission leaves the text available for retry. An atom could hold it too, but would add shared state without a clear benefit here.
